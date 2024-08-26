@@ -2,6 +2,7 @@ package couchbase.test.loadgen;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -51,6 +52,7 @@ public class WorkLoadGenerate extends Task{
     public GetOptions getOptions;
     public EsClient esClient = null;
     static Logger logger = LogManager.getLogger(WorkLoadGenerate.class);
+    private boolean stop_load = false;
 
     public WorkLoadGenerate(String taskName, DocumentGenerator dg, SDKClient client, String durability) {
         super(taskName);
@@ -101,8 +103,13 @@ public class WorkLoadGenerate extends Task{
         this.retryStrategy = retryStrategy;
     }
 
+    public void stop_load() {
+        this.stop_load = true;
+    }
+
     @Override
     public void run() {
+        this.result = true;
         logger.info("Starting " + this.taskName);
         // Set timeout in WorkLoadSettings
         this.dg.ws.setTimeoutDuration(60, "seconds");
@@ -133,7 +140,7 @@ public class WorkLoadGenerate extends Task{
         int ops = 0;
         boolean flag = false;
         Instant trackFailureTime_start = Instant.now();
-        while(true) {
+        while(! this.stop_load) {
             Instant trackFailureTime_end = Instant.now();
             Duration timeElapsed = Duration.between(trackFailureTime_start, trackFailureTime_end);
             if(timeElapsed.toMinutes() > 5) {
@@ -152,6 +159,7 @@ public class WorkLoadGenerate extends Task{
                     List<Result> result = docops.bulkInsert(this.sdk.connection, docs, setOptions);
                     ops += dg.ws.batchSize*dg.ws.creates/100;
                     if(trackFailures && result.size()>0)
+                        this.result = false;
                         try {
                             failedMutations.get("create").addAll(result);
                         } catch (Exception e) {
@@ -169,6 +177,7 @@ public class WorkLoadGenerate extends Task{
                     }
                     ops += dg.ws.batchSize*dg.ws.updates/100;
                     if(trackFailures && result.size()>0)
+                        this.result = false;
                         try {
                             failedMutations.get("update").addAll(result);
                         } catch (Exception e) {
@@ -183,6 +192,7 @@ public class WorkLoadGenerate extends Task{
                     List<Result> result = docops.bulkInsert(this.sdk.connection, docs, expiryOptions);
                     ops += dg.ws.batchSize*dg.ws.expiry/100;
                     if(trackFailures && result.size()>0)
+                        this.result = false;
                         try {
                             failedMutations.get("expiry").addAll(result);
                         } catch (Exception e) {
@@ -200,6 +210,7 @@ public class WorkLoadGenerate extends Task{
                     }
                     ops += dg.ws.batchSize*dg.ws.deletes/100;
                     if(trackFailures && result.size()>0)
+                        this.result = false;
                         try {
                             failedMutations.get("delete").addAll(result);
                         } catch (Exception e) {
@@ -223,6 +234,11 @@ public class WorkLoadGenerate extends Task{
                                 String b = om.writeValueAsString(trnx_docs.get(name));
                                 if(this.dg.ws.expectDeleted) {
                                     if(!a.contains(DocumentNotFoundException.class.getSimpleName())) {
+                                        List<Result> results = new ArrayList<Result>();
+                                        Result result = new Result((String)name, b, new Exception(a), false);
+                                        results.add(result);
+                                        failedMutations.put("validate", results);
+
                                         System.out.println("Validation failed for key: " + this.sdk.scope + ":" + this.sdk.collection + ":" + name);
                                         System.out.println("Actual Value - " + a);
                                         System.out.println("Expected Value - " + b);
@@ -264,8 +280,8 @@ public class WorkLoadGenerate extends Task{
                 }
         }
         logger.info(this.taskName + " is completed!");
-        this.result = true;
-        if (retryTimes > 0 && failedMutations.size() > 0)
+        if (retryTimes > 0 && failedMutations.size() > 0) {
+            this.result = true;
             for (Entry<String, List<Result>> optype: failedMutations.entrySet()) {
                 for (Result r: optype.getValue()) {
                     System.out.println("Loader Retrying: " + r.id() + " -> " + r.err().getClass().getSimpleName());
@@ -278,7 +294,10 @@ public class WorkLoadGenerate extends Task{
                             System.out.println("Retry Create failed for key: " + r.id());
                             this.result = false;
                         } catch (DocumentExistsException e) {
-                            System.out.println("Retry Create failed for key: " + r.id());
+                            System.out.println("Key exists now: '" + r.id() + "'");
+                        } catch (Exception e) {
+                            System.out.println("Exception during create'" + r.id() + "' :: " + e.toString());
+                            this.result = false;
                         }
                     case "update":
                         try {
@@ -287,8 +306,9 @@ public class WorkLoadGenerate extends Task{
                         } catch (TimeoutException|ServerOutOfMemoryException e) {
                             System.out.println("Retry update failed for key: " + r.id());
                             this.result = false;
-                        }  catch (DocumentExistsException e) {
-                            System.out.println("Retry update failed for key: " + r.id());
+                        }  catch (Exception e) {
+                            System.out.println("Exception during update'" + r.id() + "' :: " + e.toString());
+                            this.result = false;
                         }
                     case "delete":
                         try {
@@ -297,11 +317,13 @@ public class WorkLoadGenerate extends Task{
                         } catch (TimeoutException|ServerOutOfMemoryException e) {
                             System.out.println("Retry delete failed for key: " + r.id());
                             this.result = false;
-                        } catch (DocumentNotFoundException e) {
-                            System.out.println("Retry delete failed for key: " + r.id());
+                        } catch (Exception e) {
+                            System.out.println("Exception during delete '" + r.id() + "' :: " + e.toString());
+                            this.result = false;
                         }
                     }
                 }
             }
+        }
     }
 }

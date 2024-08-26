@@ -102,6 +102,18 @@
 			<artifactId>async-http-client</artifactId>
 			<version>${async-http-client.version}</version>
 		</dependency>
+		<!-- Add typical dependencies for a web application -->
+		<dependency>
+            <version>2.6.4</version>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-starter-logging</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
 	</dependencies>
 	<build>
 		<pluginManagement>
@@ -170,7 +182,7 @@
 						<manifest>
 							<addClasspath>true</addClasspath>
 							<classpathPrefix>lib/</classpathPrefix>
-							<mainClass>couchbase.test.sdk.Loader</mainClass>
+							<mainClass>couchbase.Launcher</mainClass>
 						</manifest>
 						<manifestEntries>
 							<Class-Path>.</Class-Path>
@@ -179,6 +191,11 @@
 					<finalName>magmadocloader/magmadocloader</finalName>
 				</configuration>
 			</plugin>
+            <!-- Package as an executable jar -->
+			<plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
 		</plugins>
 	</build>
 </project>
